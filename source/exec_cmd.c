@@ -231,15 +231,16 @@ static void activateAccount(int user)
 	show_message("%s\n%s", _("Account successfully activated!"), _("A system reboot is required"));
 }
 
-// unpack every .zip below dir_path into IMPORT_ZIP_PATH, keeping its relative folder
-static void _extract_zips(const char* dir_path, size_t root_len)
+// unpack every .zip below dir_path into IMPORT_ZIP_PATH, keeping its relative folder; returns how many zips failed
+static int _extract_zips(const char* dir_path, size_t root_len)
 {
 	DIR *d = opendir(dir_path);
 	struct dirent *dir;
 	char path[1024];
+	int failed = 0;
 
 	if (!d)
-		return;
+		return 0;
 
 	while ((dir = readdir(d)) != NULL)
 	{
@@ -252,7 +253,7 @@ static void _extract_zips(const char* dir_path, size_t root_len)
 		if (dir->d_type == DT_DIR)
 		{
 			strcat(path, "/");
-			_extract_zips(path, root_len);
+			failed += _extract_zips(path, root_len);
 		}
 		else if (dir->d_type == DT_REG && len > 4 && strcasecmp(dir->d_name + len - 4, ".zip") == 0)
 		{
@@ -260,11 +261,15 @@ static void _extract_zips(const char* dir_path, size_t root_len)
 
 			snprintf(dest, sizeof(dest), IMPORT_ZIP_PATH "%s", dir_path + root_len);
 			if (!extract_zip(path, dest))
+			{
 				LOG("Error: can't extract (%s)", path);
+				failed++;
+			}
 		}
 	}
 
 	closedir(d);
+	return failed;
 }
 
 static void _find_encrypted_saves(const char* dir_path, size_t root_len, list_t* list)
@@ -409,7 +414,7 @@ static void _free_import_list(list_t* list)
 static void resignImportFolder(void)
 {
 	char usb_path[256], src_root[256], dst_root[256];
-	int done = 0, err_count = 0, skipped = 0;
+	int done = 0, err_count = 0, skipped = 0, zip_errors;
 	char failed[1024] = "", info[1536];
 	uint64_t progress = 0;
 	list_node_t *node;
@@ -435,7 +440,7 @@ static void resignImportFolder(void)
 
 	// shortcut: all zips are unpacked up front, needs free HDD space for the whole pack, unpack one by one if packs get big
 	clean_directory(IMPORT_ZIP_PATH, "");
-	_extract_zips(src_root, strlen(src_root));
+	zip_errors = _extract_zips(src_root, strlen(src_root));
 
 	init_loading_screen(_("Searching for save games..."));
 	list = list_alloc();
@@ -447,11 +452,12 @@ static void resignImportFolder(void)
 	{
 		list_free(list);
 		clean_directory(IMPORT_ZIP_PATH, "");
-		show_message("%s\n%s", _("No encrypted save games found in:"), src_root);
+		show_message("%s\n%s\n\n%s %d", _("No encrypted save games found in:"), src_root, _(".zip files that could not be extracted:"), zip_errors);
 		return;
 	}
 
-	if (!show_dialog(DIALOG_TYPE_YESNO, "%s %zu\n\n%s\n%s", _("Save games found:"), list_count(list), _("Resign and copy them to:"), dst_root))
+	if (!show_dialog(DIALOG_TYPE_YESNO, "%s %zu\n%s %d\n\n%s\n%s", _("Save games found:"), list_count(list),
+		_(".zip files that could not be extracted:"), zip_errors, _("Resign and copy them to:"), dst_root))
 	{
 		_free_import_list(list);
 		clean_directory(IMPORT_ZIP_PATH, "");

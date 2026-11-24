@@ -45,7 +45,8 @@ int extract_zip(const char* zip_file, const char* dest_path)
 {
 	char path[256];
 	uint8_t* buffer;
-	struct zip* archive = zip_open(zip_file, ZIP_RDONLY | ZIP_CHECKCONS, NULL);
+	// no ZIP_CHECKCONS: libzip 1.9.2 rejects zips made by macOS (size in the local header + data descriptor)
+	struct zip* archive = zip_open(zip_file, ZIP_RDONLY, NULL);
 	int files = zip_get_num_files(archive);
 
 	if (files <= 0) {
